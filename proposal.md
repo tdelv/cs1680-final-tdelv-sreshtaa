@@ -5,6 +5,10 @@ implement and submit it on Gradescope. Your proposal writeup need not be more th
 of paragraphs: just describe what you’re thinking of doing, what you hope to achieve as a final
 deliverable, and how you intend to get started. -->
 
+Team: Sreshtaa Rajesh and Thomas Del Vecchio
+
+Repository: https://github.com/tdelv/cs1680-final-tdelv-sreshtaaa
+
 We plan to reimplement the Snowcast assignment using gRPC in Rust. We will use [tonic](https://github.com/hyperium/tonic), a Rust native implementation of gRPC. We will start by implementing the basic Snowcast handshake, involving a `Hello` command and a `Welcome` command. After we get an understanding of the basics of gRPC, we will then try to implement as much of the rest of the commands, making use of our code from the original project for server logic.
 
 Goals:
