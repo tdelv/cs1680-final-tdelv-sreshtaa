@@ -9,7 +9,7 @@ Team: Sreshtaa Rajesh and Thomas Del Vecchio
 
 Repository: https://github.com/tdelv/cs1680-final-tdelv-sreshtaaa
 
-We plan to reimplement the Snowcast assignment using gRPC in Rust. We will use [tonic](https://github.com/hyperium/tonic), a Rust native implementation of gRPC. We will start by implementing the basic Snowcast handshake, involving a `Hello` command and a `Welcome` command. After we get an understanding of the basics of gRPC, we will then try to implement as much of the rest of the commands, making use of our code from the original project for server logic.
+We plan to reimplement the Snowcast assignment using gRPC in Rust. We will use [tonic](https://github.com/hyperium/tonic), a Rust native implementation of gRPC. We will start by implementing the basic Snowcast handshake, involving a `Hello` command and an `Welcome` command. After we get an understanding of the basics of gRPC, we will then try to implement as many of the rest of the commands as we can, making use of our code from the original project for server logic.
 
 Goals:
 - learn how gRPC works
