@@ -11,6 +11,12 @@ byteorder = "1"
 async-broadcast = "0.3"
 futures-lite = "1.12"
 itertools = "0.10"
+tonic = "0.7"
+prost = "0.10"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+
+[build-dependencies]
+tonic-build = "0.7"
 
 [lib]
 name = "snowcast"
@@ -27,3 +33,11 @@ path = "src/bin/control.rs"
 [[bin]]
 name = "snowcast_server"
 path = "src/bin/server.rs"
+
+[[bin]] # Bin to run the HelloWorld gRPC server
+name = "helloworld-server"
+path = "src/bin/helloworld-server.rs"
+
+[[bin]] # Bin to run the HelloWorld gRPC client
+name = "helloworld-client"
+path = "src/bin/helloworld-client.rs"
