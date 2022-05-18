@@ -19,5 +19,5 @@ message SetStationRequest {
 }
 
 message AnnounceReply {
-    string songname = 1;
+    string songName = 1;
 }
