@@ -1,5 +1,5 @@
 
-use std::{io::stdin, sync::mpsc::SyncSender, path::PathBuf};
+use std::{io::stdin, sync::mpsc::SyncSender, path::PathBuf, net::{SocketAddr, IpAddr}};
 use clap::Parser;
 use itertools::Itertools;
 use snowcast::{server::{station::{Stations, ReplToStationsMessage}, client::Client}, util::result::Result};
@@ -42,6 +42,34 @@ fn repl(repl_to_station_sender: SyncSender<ReplToStationsMessage>) -> Result<()>
     }
 }
 
+use tonic::{Request, Response, Status, transport::Server};
+use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply};
+
+pub mod snowcast_proto {
+    tonic::include_proto!("snowcast");
+}
+
+#[derive(Debug, Default)]
+struct MyServer {}
+
+#[tonic::async_trait]
+impl Snowcast for MyServer {
+    async fn say_hello(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> std::result::Result<Response<WelcomeReply>, Status> {
+        todo!()
+    }
+
+
+    async fn set_station(
+        &self,
+        request: Request<SetStationRequest>,
+    ) -> std::result::Result<Response<AnnounceReply>, Status> {
+        todo!()
+    }
+}
+
 // CLI
 
 #[derive(Parser)]
@@ -51,22 +79,19 @@ struct Cli {
     stations: Vec<std::path::PathBuf>
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args = Cli::parse();
 
-    // Create Server->Client broadcaster for e.g. announcing new stations
-    let (broadcast_sender, broadcast_listener) = async_broadcast::broadcast(MAX_BROADCAST);
+    let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), args.tcpport);
+    let greeter = MyServer::default();
 
-    // Start up the stations (in a new thread)
-    let (repl_to_station_sender, station_connectors) = {
-        let mut initial_stations = vec![args.station];
-        initial_stations.extend(args.stations);
-        Stations::start(initial_stations, broadcast_sender)
-    };
-
-    // Listen for new client connections (in a new thread)
-    Client::listen_for_connections(args.tcpport, station_connectors, broadcast_listener);
+    Server::builder()
+        .add_service(SnowcastServer::new(greeter))
+        .serve(addr)
+        .await?;
 
     // Run repl
-    repl(repl_to_station_sender)
+    // repl(repl_to_station_sender)
+    Ok(())
 }
