@@ -1,0 +1,23 @@
+syntax = "proto3";
+package snowcast;
+
+service Snowcast {
+    rpc SayHello (HelloRequest) returns (WelcomeReply);
+    rpc SetStation (SetStationRequest) returns (AnnounceReply);
+}
+
+message HelloRequest {
+    uint32 udpPort = 1;
+}
+
+message WelcomeReply {
+    uint32 numStations = 1;
+}
+
+message SetStationRequest {
+    uint32 stationNumber = 1;
+}
+
+message AnnounceReply {
+    string songname = 1;
+}
