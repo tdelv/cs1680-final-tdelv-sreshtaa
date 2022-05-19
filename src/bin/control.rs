@@ -96,9 +96,16 @@ async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<
                 // Wait for song announcement from server
                 println!("Waiting for an announce...");
 
-                let announce = client.set_station(tonic::Request::new(SetStationRequest { station_number })).await?;
-                let songname = announce.into_inner().songname;
-                println!("New song announced: {}", songname);
+                match client.set_station(tonic::Request::new(SetStationRequest { station_number })).await {
+                    Ok(announce) => {
+                        let songname = announce.into_inner().songname;
+                        println!("New song announced: {}", songname);
+                    }
+                    Err(_) => {
+                        println!("Invalid station number.");
+                    }
+                }
+                
             }
         }
     }
