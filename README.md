@@ -10,6 +10,8 @@ Our deliverable is a reimplementation of Snowcast that allows a clients to conne
 
 ## Design & Implementation
 
+### Protobuf
+
 We used Rust's `tonic` crate, which contains a Rust-native implementation of gRPC in order to set up and integrate our RPC commands into Snowcast. This crate provides a nice interface for definining server-side logic for handling RPC service requests through the use of a trait that has functions for all of the services specified in the protobuf. 
 
 Our protobuf was set up with three RPC services that represent the three client-server communications that we wanted to implement: the hello handshake, the correspondence when clients set their station, and the graceful exit when either the client or server quits. These are shown below.
@@ -49,6 +51,32 @@ message AnnounceReply {
 Lastly, both the `QuitRequest` and `GoodbyeReply` were empty messages. 
 
 In the beginning of the semester, we had to manually serialize these, but using protobuf messages provided a really easy way to specify what our custom protocols should look like without having to worry about the details of serialization. 
+
+### Server-side Implementation 
+
+As mentioned previously, the `tonic` crate takes a protobuf, and provides a trait for the server to implement that details how it will handle the logic of each type of requested RPC service. The internals of our server were contained in a struct called `MyServer`. Using `tonic`, we implemented a `Snowcast` trait for this server that mirrored the RPC services detailed above: 
+
+```rust
+#[tonic::async_trait]
+impl Snowcast for MyServer {
+    async fn say_hello(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> std::result::Result<Response<WelcomeReply>, Status>;
+
+    async fn set_station(
+        &self,
+        request: Request<SetStationRequest>,
+    ) -> std::result::Result<Response<AnnounceReply>, Status>;
+
+    async fn say_goodbye(
+        &self,
+        request: Request<QuitRequest>,
+    ) -> std::result::Result<Response<GoodbyeReply>, Status>;
+}
+```
+
+Each function returns a `Response` struct provided by `tonic` that contains a custom `Reply` as defined by our protobuf. This enables the client-side to handle the server's response, and thus completes the client-server communication. 
 
 ## Discussion & Results
 
