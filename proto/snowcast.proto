@@ -28,3 +28,18 @@ message QuitRequest {
 
 message GoodbyeReply {
 }
+
+service Broadcast {
+    rpc AnnounceSong (AnnounceBroadcast) returns (BroadcastAcknowledge);
+    rpc Shutdown (ShutdownBroadcast) returns (BroadcastAcknowledge);
+}
+
+message AnnounceBroadcast {
+    string songname = 1;
+}
+
+message ShutdownBroadcast {
+}
+
+message BroadcastAcknowledge {
+}

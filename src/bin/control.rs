@@ -1,9 +1,10 @@
-use std::{io::{stdin, self, Write}, result};
+use std::{io::{stdin, self, Write}, result, net::{IpAddr, SocketAddr}};
 use clap::Parser;
-use snowcast_proto::{HelloRequest, SetStationRequest, snowcast_client::SnowcastClient};
-use tonic::transport::Channel;
+use snowcast_proto::{HelloRequest, SetStationRequest, snowcast_client::SnowcastClient, AnnounceBroadcast, BroadcastAcknowledge, ShutdownBroadcast, broadcast_server::BroadcastServer};
+use tonic::{transport::{Channel, Server}, Request, Response, Status};
 
 use crate::snowcast_proto::QuitRequest;
+use crate::snowcast_proto::broadcast_server::Broadcast;
 
 pub mod snowcast_proto {
     tonic::include_proto!("snowcast");
@@ -45,9 +46,36 @@ impl From<tonic::Status> for Error {
 
 type Result<T> = result::Result<T, Error>;
 
+// Broadcast Handler Server
+
+struct BroadcastHandlerServer {
+    shutdown: tokio::sync::mpsc::Sender<()>
+}
+
+#[tonic::async_trait]
+impl Broadcast for BroadcastHandlerServer {
+    async fn announce_song(
+        &self,
+        request: Request<AnnounceBroadcast>,
+    ) -> std::result::Result<Response<BroadcastAcknowledge>, Status> {
+        println!("New song announced: {}", request.into_inner().songname);
+        Ok(Response::new(BroadcastAcknowledge {  }))
+    }
+
+
+    async fn shutdown(
+        &self,
+        _request: Request<ShutdownBroadcast>,
+    ) -> std::result::Result<Response<BroadcastAcknowledge>, Status> {
+        println!("Server closed.");
+        let _ = self.shutdown.send(()).await;
+        Ok(Response::new(BroadcastAcknowledge {  }))
+    }
+}
+
 // Repl
 
-async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<()> {
+async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32, shutdown: tokio::sync::mpsc::Sender<()>) -> Result<()> {
     // Print welcome
     println!("Type in a number to set the station we're listening to to that number.");
     println!("Type in 'q' or press CTRL+C to quit.");
@@ -69,6 +97,7 @@ async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<
             // Quit
             "q" => {
                 let _ = client.say_goodbye(tonic::Request::new(QuitRequest { })).await;
+                let _ = shutdown.send(()).await;
                 return Ok(());
             }
 
@@ -101,6 +130,20 @@ async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<
 }
 
 async fn go(servername: String, serverport: u16, udp_port: u32) -> Result<()> {
+    // Channels
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    // Start handling broadcasts
+    let broadcast_handler = BroadcastHandlerServer {
+        shutdown: tx.clone()
+    };
+    tokio::spawn(async move {
+        let addr = SocketAddr::new(IpAddr::from([127, 0, 0, 1]), 2000);
+        let _ = Server::builder()
+            .add_service(BroadcastServer::new(broadcast_handler))
+            .serve_with_shutdown(addr, async { rx.recv().await; () }).await;
+    });
+
     // Connect to the server
     let mut client = SnowcastClient::connect(format!("http://{}:{}", servername, serverport)).await?;
 
@@ -109,7 +152,7 @@ async fn go(servername: String, serverport: u16, udp_port: u32) -> Result<()> {
     let num_stations = response.into_inner().num_stations;
 
     // Start repl
-    repl(client, num_stations).await
+    repl(client, num_stations, tx).await
 }
 
 #[derive(Parser)]

@@ -7,8 +7,8 @@ const BYTES_PER_PACKET: usize = 1024;
 const SECONDS_PER_PACKET: Duration = Duration::from_micros((BYTES_PER_PACKET as f64 / BYTES_PER_SECOND * 1e6) as u64);
 
 use tokio::sync::mpsc;
-use tonic::{Request, Response, Status, transport::Server};
-use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply, QuitRequest, GoodbyeReply};
+use tonic::{Request, Response, Status, transport::{Server, Channel}};
+use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply, QuitRequest, GoodbyeReply, broadcast_client::BroadcastClient, AnnounceBroadcast, ShutdownBroadcast};
 
 pub mod snowcast_proto {
     tonic::include_proto!("snowcast");
@@ -19,6 +19,7 @@ pub mod snowcast_proto {
 struct Client {
     controller_addr: SocketAddr,
     listener_socket: UdpSocket,
+    client_broadcast: Mutex<BroadcastClient<Channel>>,
 }
 
 impl PartialEq for Client {
@@ -50,13 +51,16 @@ impl Station {
         }
     }
 
-    fn send_packet<T: Iterator<Item = Arc<Client>>>(&mut self, clients: T) {
+    fn send_packet<T: Iterator<Item = Arc<Client>>>(&mut self, clients: T) -> Option<String> {
         let mut bytes = vec![0u8; BYTES_PER_PACKET];
         let mut bytes_read = 0;
+
+        let mut new_song = None;
         while bytes_read < BYTES_PER_PACKET {
             let curr_bytes = self.file.read(&mut bytes[bytes_read..]).unwrap();
             if curr_bytes == 0 {
                 self.file.rewind().unwrap();
+                new_song = Some(self.songname.clone());
             } else {
                 bytes_read += curr_bytes;
             }
@@ -65,6 +69,8 @@ impl Station {
         for client in clients {
             let _ = client.listener_socket.send(&bytes[..bytes_read]);
         }
+
+        new_song
     }
 }
 
@@ -99,7 +105,14 @@ impl MyServer {
             let station_to_clients = lock.station_to_clients.clone();
             for (station_num, station) in lock.station_map.iter_mut() {
                 let clients = station_to_clients.get(station_num).unwrap();
-                station.send_packet(clients.iter().cloned());
+                if let Some(new_song) = station.send_packet(clients.iter().cloned()) {
+                    let futures = clients.iter().map(|client| {
+                        let songname = new_song.clone();
+                        client.client_broadcast.lock().unwrap().announce_song(Request::new(AnnounceBroadcast { songname }))
+                    }).collect::<Vec<_>>();
+                    let future = futures::future::join_all(futures);
+                    tokio::spawn(future);
+                }
             }
             drop(lock);
             let time_elapsed = start_time.elapsed();
@@ -118,13 +131,15 @@ struct MyServerInternal {
 }
 
 impl MyServerInternal {
-    fn add_listener(&mut self, controller_addr: SocketAddr, listener_addr: SocketAddr) -> std::result::Result<(), &'static str> {
+    async fn add_listener(&mut self, controller_addr: SocketAddr, listener_addr: SocketAddr) -> std::result::Result<(), &'static str> {
         if self.controller_to_client.contains_key(&controller_addr) {
             return Err("User already exists.");
         }
         let listener_socket = UdpSocket::bind("0.0.0.0:0").unwrap();
         listener_socket.connect(listener_addr).unwrap();
-        let client = Arc::new(Client { controller_addr, listener_socket });
+        let broadcast_addr = SocketAddr::new(controller_addr.ip(), 2000);
+        let client_broadcast = Mutex::new(tokio::join!(BroadcastClient::connect(format!("http://{}", broadcast_addr))).0.map_err(|_| "failed to connect to broadcast server")?);
+        let client = Arc::new(Client { controller_addr, listener_socket, client_broadcast });
         self.controller_to_client.insert(controller_addr, Arc::clone(&client));
         self.station_to_clients.get_mut(&0).unwrap().insert(Arc::clone(&client));
         self.client_to_stations.insert(client, 0);
@@ -147,6 +162,17 @@ impl MyServerInternal {
         self.client_to_stations.remove(&client);
         Ok(())
     }
+
+    async fn broadcast_shutdown(&mut self) {
+        let mut locks = self.controller_to_client.iter().map(|(_, client)| {
+            client.client_broadcast.lock().unwrap()
+        }).collect::<Vec<_>>();
+        let futures = locks.iter_mut().map(|lock| {
+            lock.shutdown(Request::new(ShutdownBroadcast { }))
+        }).collect::<Vec<_>>();
+        let future = futures::future::join_all(futures);
+        tokio::join!(future);
+    }
 }
 
 #[tonic::async_trait]
@@ -159,8 +185,13 @@ impl Snowcast for MyServer {
         let listener_port = request.into_inner().udp_port;
         let listener_addr = SocketAddr::new(controller_addr.ip(), listener_port as u16);
 
+        tokio::spawn(async {
+            let mut lock = self.internal.lock().unwrap();
+            lock.add_listener(controller_addr, listener_addr).await.map_err(|reason| Status::invalid_argument(reason))?;
+            drop(lock);
+        });
+
         let mut lock = self.internal.lock().unwrap();
-        lock.add_listener(controller_addr, listener_addr).map_err(|reason| Status::invalid_argument(reason))?;
         let num_stations = lock.num_stations;
         drop(lock);
         Ok(Response::new(WelcomeReply { num_stations }))
@@ -194,7 +225,7 @@ impl Snowcast for MyServer {
 
 // Repl
 
-fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(), &'static str> {
+async fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(), &'static str> {
     loop {
         // Get input
         let mut buf = String::new();
@@ -203,6 +234,9 @@ fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(),
         match buf.as_str().trim() {
             // Quit
             "q" => {
+                let mut lock = server.internal.lock().unwrap();
+                lock.broadcast_shutdown();
+                drop(lock);
                 shutdown.blocking_send(()).unwrap();
                 return Ok(());
             }
@@ -252,7 +286,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     {
         let greeter = greeter.clone();
-        thread::spawn(move || repl(greeter, tx));
+        tokio::spawn(repl(greeter, tx));
     }
 
     Server::builder()
