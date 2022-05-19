@@ -6,18 +6,19 @@
 
 For our project, we chose to explore gRPC and attempt to implement Snowcast using RPCs. Our goal was to, at minimum, implement the client-server handshake (via `Hello` and `Welcome`) and allow the client to choose a station (via `SetStation` and `Announce`). 
 
-Our deliverable is a (very pared-down) implementation of Snowcast that allows a single client to connect to the server and choose a station. Something we didn't get around to doing is actually streaming music to the UDP client, but the server does announce what song the client's selected station is playing, which gives us confidence that the RPC commands are working. 
+Our deliverable is a reimplementation of Snowcast that allows a clients to connect to the server, choose a station, and receive the bytes being streamed. 
 
 ## Design & Implementation
 
 We used Rust's `tonic` crate, which contains a Rust-native implementation of gRPC in order to set up and integrate our RPC commands into Snowcast. This crate provides a nice interface for **[insert later]**. 
 
-Our protobuf was set up with two RPC services that represent the two client-server communications that we wanted to implement: the hello handshake, and the correspondence when clients set their station. These are shown below.
+Our protobuf was set up with two RPC services that represent the three client-server communications that we wanted to implement: the hello handshake, the correspondence when clients set their station, and the graceful exit when either the client or server quits. These are shown below.
 
 ```protobuf
 service Snowcast {
     rpc SayHello (HelloRequest) returns (WelcomeReply);
     rpc SetStation (SetStationRequest) returns (AnnounceReply);
+    rpc SayGoodbye (QuitRequest) returns (GoodbyeReply);
 }
 ```
 
@@ -45,12 +46,17 @@ message AnnounceReply {
 }
 ```
 
-While originally, we had to manually serialize these, protobuf messages provided a really easy way to specify what our custom protocols should look like without having to worry about the details of serialization. 
+Lastly, both the `QuitRequest` and `GoodbyeReply` were empty messages. 
+
+In the beginning of the semester, we had to manually serialize these, but using protobuf messages provided a really easy way to specify what our custom protocols should look like without having to worry about the details of serialization. 
 
 ## Discussion & Results
 
 <!-- How far did you get toward your goal? In this section, describe any results you have, what you have learned, and any challenges you faced along the way -->
 
+We were able to implement a basic working implementation of Snowcast where a server can run a number of stations, and clients can connect and switch between stations. Our server was able to stream bytes to the listener client upon station selection, as well, and the REPL was also functional. 
+
+One challenging aspect of this project was implementing the server feature which resends an `Announce` command when the song repeats. Revisiting the services in our protobuf, we see that requesting the `SetStation` service requires a `SetStationRequest` from the client and it solicits an `AnnounceReply` from the server. Sending an `AnnounceReply` when the song repeats is a form of unsolicited messaging from the server which was not representable using the RPC. While trying to form a workaround **[insert details about workaround]**, we ran into some scary Rust async/await roadblocks, so we ultimately decided not to implement this feature. 
 
 ## Conclusions & Future Work
 
