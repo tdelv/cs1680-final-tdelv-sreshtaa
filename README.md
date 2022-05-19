@@ -10,9 +10,9 @@ Our deliverable is a reimplementation of Snowcast that allows a clients to conne
 
 ## Design & Implementation
 
-We used Rust's `tonic` crate, which contains a Rust-native implementation of gRPC in order to set up and integrate our RPC commands into Snowcast. This crate provides a nice interface for **[insert later]**. 
+We used Rust's `tonic` crate, which contains a Rust-native implementation of gRPC in order to set up and integrate our RPC commands into Snowcast. This crate provides a nice interface for definining server-side logic for handling RPC service requests through the use of a trait that has functions for all of the services specified in the protobuf. 
 
-Our protobuf was set up with two RPC services that represent the three client-server communications that we wanted to implement: the hello handshake, the correspondence when clients set their station, and the graceful exit when either the client or server quits. These are shown below.
+Our protobuf was set up with three RPC services that represent the three client-server communications that we wanted to implement: the hello handshake, the correspondence when clients set their station, and the graceful exit when either the client or server quits. These are shown below.
 
 ```protobuf
 service Snowcast {
