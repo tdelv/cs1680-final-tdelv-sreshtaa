@@ -50,8 +50,6 @@ type Result<T> = result::Result<T, Error>;
 async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<()> {
     // Print welcome
     println!("Type in a number to set the station we're listening to to that number.");
-    println!("Type in 'queue' to list the few songs on the queue.");
-    println!("Type in 'list' to list the available stations.");
     println!("Type in 'q' or press CTRL+C to quit.");
     println!("> The server has {} stations.", num_stations);
 

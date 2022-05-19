@@ -18,10 +18,6 @@ tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 [build-dependencies]
 tonic-build = "0.7"
 
-[lib]
-name = "snowcast"
-path = "src/lib.rs"
-
 [[bin]]
 name = "snowcast_listener"
 path = "src/bin/listener.rs"

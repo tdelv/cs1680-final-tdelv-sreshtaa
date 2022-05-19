@@ -6,41 +6,6 @@ const BYTES_PER_SECOND: f64 = 16_f64 * 1024_f64;
 const BYTES_PER_PACKET: usize = 1024;
 const SECONDS_PER_PACKET: Duration = Duration::from_micros((BYTES_PER_PACKET as f64 / BYTES_PER_SECOND * 1e6) as u64);
 
-
-// Repl
-
-fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(), &'static str> {
-    loop {
-        // Get input
-        let mut buf = String::new();
-        let _ = stdin().read_line(&mut buf).expect("stdin read_line call failed");
-
-        match buf.as_str().trim() {
-            // Quit
-            "q" => {
-                shutdown.blocking_send(()).unwrap();
-                return Ok(());
-            }
-
-            // Print all stations and listeners
-            "p" => {
-                let lock = server.internal.lock().unwrap();
-                for station in 0..lock.num_stations {
-                    let song = &lock.station_map.get(&station).unwrap().songname;
-                    let listeners = lock.station_to_clients.get(&station).unwrap();
-                    print!("Station {} playing {}, listening: ", station, song);
-                    for listener in listeners {
-                        print!("{} ", listener.listener_socket.peer_addr().unwrap());
-                    }
-                    println!("");
-                }
-            }
-
-            _ => { println!("Unrecognized command."); }
-        }
-    }
-}
-
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, transport::Server};
 use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply, QuitRequest, GoodbyeReply};
@@ -48,6 +13,8 @@ use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, 
 pub mod snowcast_proto {
     tonic::include_proto!("snowcast");
 }
+
+// Clients
 
 struct Client {
     controller_addr: SocketAddr,
@@ -68,28 +35,7 @@ impl std::hash::Hash for Client {
     }
 }
 
-#[derive(Clone)]
-struct MyServer {
-    internal: Arc<Mutex<MyServerInternal>>,
-}
-
-impl MyServer {
-    fn new(stations: Vec<Station>) -> Self {
-        let num_stations = stations.len() as u32;
-        let station_map = stations.into_iter().enumerate().map(|(i, s)| (i as u32, s)).collect();
-        let station_to_clients = (0..num_stations).map(|i| (i, HashSet::new())).collect();
-        Self {
-            internal: Arc::new(Mutex::new(MyServerInternal {
-                num_stations,
-                station_map,
-
-                controller_to_client: HashMap::new(),
-                station_to_clients,
-                client_to_stations: HashMap::new(),
-            }))
-        }
-    }
-}
+// Stations
 
 struct Station {
     file: std::fs::File,
@@ -118,6 +64,46 @@ impl Station {
 
         for client in clients {
             let _ = client.listener_socket.send(&bytes[..bytes_read]);
+        }
+    }
+}
+
+// Server
+
+#[derive(Clone)]
+struct MyServer {
+    internal: Arc<Mutex<MyServerInternal>>,
+}
+
+impl MyServer {
+    fn new(stations: Vec<Station>) -> Self {
+        let num_stations = stations.len() as u32;
+        let station_map = stations.into_iter().enumerate().map(|(i, s)| (i as u32, s)).collect();
+        let station_to_clients = (0..num_stations).map(|i| (i, HashSet::new())).collect();
+        Self {
+            internal: Arc::new(Mutex::new(MyServerInternal {
+                num_stations,
+                station_map,
+
+                controller_to_client: HashMap::new(),
+                station_to_clients,
+                client_to_stations: HashMap::new(),
+            }))
+        }
+    }
+
+    fn run_stations(&self) {
+        loop {
+            let start_time = Instant::now();
+            let mut lock = self.internal.lock().unwrap();
+            let station_to_clients = lock.station_to_clients.clone();
+            for (station_num, station) in lock.station_map.iter_mut() {
+                let clients = station_to_clients.get(station_num).unwrap();
+                station.send_packet(clients.iter().cloned());
+            }
+            drop(lock);
+            let time_elapsed = start_time.elapsed();
+            thread::sleep(SECONDS_PER_PACKET - time_elapsed);
         }
     }
 }
@@ -206,18 +192,37 @@ impl Snowcast for MyServer {
     }
 }
 
-fn run_stations(server: MyServer) {
+// Repl
+
+fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(), &'static str> {
     loop {
-        let start_time = Instant::now();
-        let mut lock = server.internal.lock().unwrap();
-        let station_to_clients = lock.station_to_clients.clone();
-        for (station_num, station) in lock.station_map.iter_mut() {
-            let clients = station_to_clients.get(station_num).unwrap();
-            station.send_packet(clients.iter().cloned());
+        // Get input
+        let mut buf = String::new();
+        let _ = stdin().read_line(&mut buf).expect("stdin read_line call failed");
+
+        match buf.as_str().trim() {
+            // Quit
+            "q" => {
+                shutdown.blocking_send(()).unwrap();
+                return Ok(());
+            }
+
+            // Print all stations and listeners
+            "p" => {
+                let lock = server.internal.lock().unwrap();
+                for station in 0..lock.num_stations {
+                    let song = &lock.station_map.get(&station).unwrap().songname;
+                    let listeners = lock.station_to_clients.get(&station).unwrap();
+                    print!("Station {} playing {}, listening: ", station, song);
+                    for listener in listeners {
+                        print!("{} ", listener.listener_socket.peer_addr().unwrap());
+                    }
+                    println!("");
+                }
+            }
+
+            _ => { println!("Unrecognized command."); }
         }
-        drop(lock);
-        let time_elapsed = start_time.elapsed();
-        thread::sleep(SECONDS_PER_PACKET - time_elapsed);
     }
 }
 
@@ -240,7 +245,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     {
         let greeter = greeter.clone();
-        thread::spawn(move || run_stations(greeter));
+        thread::spawn(move || greeter.run_stations());
     }
 
     let (tx, mut rx) = mpsc::channel::<()>(1);
