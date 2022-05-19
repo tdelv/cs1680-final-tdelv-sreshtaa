@@ -3,6 +3,8 @@ use clap::Parser;
 use snowcast_proto::{HelloRequest, SetStationRequest, snowcast_client::SnowcastClient};
 use tonic::transport::Channel;
 
+use crate::snowcast_proto::QuitRequest;
+
 pub mod snowcast_proto {
     tonic::include_proto!("snowcast");
 }
@@ -68,20 +70,9 @@ async fn repl(mut client: SnowcastClient<Channel>, num_stations: u32) -> Result<
         match buf.as_str().trim() {
             // Quit
             "q" => {
+                let _ = client.say_goodbye(tonic::Request::new(QuitRequest { })).await;
                 return Ok(());
             }
-
-            // // Request current station queue
-            // "queue" => {
-            //     let mut stream_lock = stream.lock().unwrap();
-            //     ClientToServerMessage::GetQueue.write(&mut stream_lock)?;
-            // }
-
-            // // Request list of all stations
-            // "list" => {
-            //     let mut stream_lock = stream.lock().unwrap();
-            //     ClientToServerMessage::ListStations.write(&mut stream_lock)?;
-            // }
 
             s => {
                 // Request station change

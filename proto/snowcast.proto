@@ -4,6 +4,7 @@ package snowcast;
 service Snowcast {
     rpc SayHello (HelloRequest) returns (WelcomeReply);
     rpc SetStation (SetStationRequest) returns (AnnounceReply);
+    rpc SayGoodbye (QuitRequest) returns (GoodbyeReply);
 }
 
 message HelloRequest {
@@ -20,4 +21,10 @@ message SetStationRequest {
 
 message AnnounceReply {
     string songname = 1;
+}
+
+message QuitRequest {
+}
+
+message GoodbyeReply {
 }

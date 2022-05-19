@@ -43,7 +43,7 @@ fn repl(server: MyServer, shutdown: mpsc::Sender<()>) -> std::result::Result<(),
 
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, transport::Server};
-use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply};
+use snowcast_proto::{snowcast_server::{Snowcast, SnowcastServer}, HelloRequest, WelcomeReply, SetStationRequest, AnnounceReply, QuitRequest, GoodbyeReply};
 
 pub mod snowcast_proto {
     tonic::include_proto!("snowcast");
@@ -153,6 +153,14 @@ impl MyServerInternal {
         self.client_to_stations.insert(Arc::clone(client), new_station);
         Ok(())
     }
+
+    fn remove_listener(&mut self, controller_addr: SocketAddr) -> std::result::Result<(), &'static str> {
+        let client = self.controller_to_client.remove(&controller_addr).ok_or("User does not exist.")?;
+        let old_station = self.client_to_stations.get(&client).unwrap();
+        self.station_to_clients.get_mut(old_station).unwrap().remove(&client);
+        self.client_to_stations.remove(&client);
+        Ok(())
+    }
 }
 
 #[tonic::async_trait]
@@ -161,7 +169,6 @@ impl Snowcast for MyServer {
         &self,
         request: Request<HelloRequest>,
     ) -> std::result::Result<Response<WelcomeReply>, Status> {
-        println!("say hello called!");
         let controller_addr = request.remote_addr().unwrap();
         let listener_port = request.into_inner().udp_port;
         let listener_addr = SocketAddr::new(controller_addr.ip(), listener_port as u16);
@@ -170,7 +177,6 @@ impl Snowcast for MyServer {
         lock.add_listener(controller_addr, listener_addr).map_err(|reason| Status::invalid_argument(reason))?;
         let num_stations = lock.num_stations;
         drop(lock);
-        println!("say hello end!");
         Ok(Response::new(WelcomeReply { num_stations }))
     }
 
@@ -186,6 +192,17 @@ impl Snowcast for MyServer {
         let songname = lock.station_map.get(&station_number).unwrap().songname.clone();
         drop(lock);
         Ok(Response::new(AnnounceReply { songname }))
+    }
+
+    async fn say_goodbye(
+        &self,
+        request: Request<QuitRequest>,
+    ) -> std::result::Result<Response<GoodbyeReply>, Status> {
+        let client_addr = request.remote_addr().unwrap();
+        let mut lock = self.internal.lock().unwrap();
+        lock.remove_listener(client_addr).map_err(|reason| Status::invalid_argument(reason))?;
+        drop(lock);
+        Ok(Response::new(GoodbyeReply { }))
     }
 }
 
